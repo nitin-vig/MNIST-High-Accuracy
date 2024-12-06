@@ -1,0 +1,237 @@
+# Directory structure:
+# MNIST-CI/
+# ├── .github/
+# │   └── workflows/
+# │       └── ci.yml
+# ├── src/
+# │   ├── model.py
+# │   ├── train.py 
+# │   └── test_model.py
+# ├── requirements.txt
+# └── .gitignore
+
+# First create the directory structure above
+
+# .github/workflows/ci.yml:
+name: ML Model CI
+
+on: [push]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.8'
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    - name: Train model
+      run: |
+        python src/train.py
+    - name: Run tests
+      run: |
+        pytest src/test_model.py -v
+
+# requirements.txt:
+torch>=1.9.0
+torchvision>=0.10.0
+numpy>=1.19.5
+pytest>=6.2.5
+
+# .gitignore:
+__pycache__/
+*.py[cod]
+*.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+.env
+.venv
+venv/
+ENV/
+models/
+*.h5
+*.pth
+
+# src/model.py:
+import torch
+import torch.nn as nn
+
+class MNISTModel(nn.Module):
+    def __init__(self):
+        super(MNISTModel, self).__init__()
+        self.conv1 = nn.Conv2d(1, 32, 3)
+        self.conv2 = nn.Conv2d(32, 64, 3)
+        self.fc1 = nn.Linear(64 * 5 * 5, 128)
+        self.fc2 = nn.Linear(128, 10)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        x = self.pool(self.relu(self.conv1(x)))
+        x = self.pool(self.relu(self.conv2(x)))
+        x = x.view(-1, 64 * 5 * 5)
+        x = self.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+# src/train.py:
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torchvision import datasets, transforms
+from model import MNISTModel
+import datetime
+
+def train():
+    # Set device
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    # Load MNIST dataset
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.1307,), (0.3081,))
+    ])
+    
+    train_dataset = datasets.MNIST('./data', train=True, download=True, transform=transform)
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=64, shuffle=True)
+    
+    # Initialize model
+    model = MNISTModel().to(device)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters())
+    
+    # Train for 1 epoch
+    model.train()
+    for batch_idx, (data, target) in enumerate(train_loader):
+        data, target = data.to(device), target.to(device)
+        optimizer.zero_grad()
+        output = model(data)
+        loss = criterion(output, target)
+        loss.backward()
+        optimizer.step()
+        
+        if batch_idx % 100 == 0:
+            print(f'Batch {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}')
+    
+    # Save model with timestamp
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    torch.save(model.state_dict(), f'models/mnist_model_{timestamp}.pth')
+    
+if __name__ == "__main__":
+    train()
+
+# src/test_model.py:
+import torch
+from torchvision import datasets, transforms
+from model import MNISTModel
+import pytest
+
+def test_model_architecture():
+    model = MNISTModel()
+    
+    # Test input shape
+    test_input = torch.randn(1, 1, 28, 28)
+    output = model(test_input)
+    assert output.shape == (1, 10), "Output shape should be (batch_size, 10)"
+    
+    # Test parameter count
+    total_params = sum(p.numel() for p in model.parameters())
+    assert total_params < 100000, "Model has too many parameters"
+
+def test_model_performance():
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = MNISTModel().to(device)
+    
+    # Load latest model
+    import glob
+    import os
+    model_files = glob.glob('models/mnist_model_*.pth')
+    latest_model = max(model_files, key=os.path.getctime)
+    model.load_state_dict(torch.load(latest_model))
+    
+    # Test on validation set
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.1307,), (0.3081,))
+    ])
+    
+    test_dataset = datasets.MNIST('./data', train=False, download=True, transform=transform)
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1000)
+    
+    model.eval()
+    correct = 0
+    total = 0
+    
+    with torch.no_grad():
+        for data, target in test_loader:
+            data, target = data.to(device), target.to(device)
+            outputs = model(data)
+            _, predicted = torch.max(outputs.data, 1)
+            total += target.size(0)
+            correct += (predicted == target).sum().item()
+    
+    accuracy = 100 * correct / total
+    assert accuracy > 80, f"Model accuracy {accuracy:.2f}% is below 80%"
+
+# Steps to run locally:
+# 1. Create virtual environment:
+#    python -m venv venv
+#    source venv/bin/activate  # On Windows: venv\Scripts\activate
+#
+# 2. Install requirements:
+#    pip install -r requirements.txt
+#
+# 3. Create directories:
+#    mkdir models
+#    mkdir -p .github/workflows
+#
+# 4. Train model:
+#    python src/train.py
+#
+# 5. Run tests:
+#    pytest src/test_model.py -v
+#
+# 6. If all tests pass, you can commit and push to GitHub:
+#    git init
+#    git add .
+#    git commit -m "Initial commit"
+#    git remote add origin <your-repo-url>
+#    git push -u origin master
+
+# The GitHub Actions workflow will automatically run when you push to the repository
+# It will:
+# 1. Set up Python environment
+# 2. Install dependencies
+# 3. Train the model
+# 4. Run all tests
+# - Tests check for:
+#   * Model architecture (input/output shapes)
+#   * Parameter count < 100k
+#   * Model accuracy > 80%
+
+# Commands to run for installation
+pip install numpy==1.26.4
+pip install torch==2.2.2
+pip install torchvision==0.17.2
+pip install pytest==8.3.3
