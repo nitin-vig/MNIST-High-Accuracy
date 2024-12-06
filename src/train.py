@@ -46,10 +46,10 @@ def train():
     
     # Create data loaders
     train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=64, shuffle=True
+        train_dataset, batch_size=256, shuffle=True
     )
     val_loader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=64, shuffle=False
+        val_dataset, batch_size=256, shuffle=False
     )
     
     print(f"Training set size: {len(train_dataset)}")
@@ -63,34 +63,39 @@ def train():
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters())
     
-    # Train for 1 epoch
-    model.train()
-    for batch_idx, (data, target) in enumerate(train_loader):
-        data, target = data.to(device), target.to(device)
-        optimizer.zero_grad()
-        output = model(data)
-        loss = criterion(output, target)
-        loss.backward()
-        optimizer.step()
+    # Train for 5 epochs
+    num_epochs = 19
+    for epoch in range(num_epochs):
+        print(f"\nEpoch {epoch+1}/{num_epochs}")
         
-        if batch_idx % 100 == 0:
-            print(f'Batch {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}')
-    
-    # Add validation
-    model.eval()
-    with torch.no_grad():
-        val_loss = 0
-        correct = 0
-        for data, target in val_loader:
+        # Training phase
+        model.train()
+        for batch_idx, (data, target) in enumerate(train_loader):
             data, target = data.to(device), target.to(device)
+            optimizer.zero_grad()
             output = model(data)
-            val_loss += criterion(output, target).item()
-            pred = output.argmax(dim=1, keepdim=True)
-            correct += pred.eq(target.view_as(pred)).sum().item()
+            loss = criterion(output, target)
+            loss.backward()
+            optimizer.step()
+            
+            if batch_idx % 100 == 0:
+                print(f'Batch {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}')
         
-        val_loss /= len(val_loader) 
-        accuracy = 100. * correct / len(val_dataset)
-        print(f'Validation Loss: {val_loss:.4f}, Accuracy: {accuracy:.2f}%')
+        # Validation phase
+        model.eval()
+        with torch.no_grad():
+            val_loss = 0
+            correct = 0
+            for data, target in val_loader:
+                data, target = data.to(device), target.to(device)
+                output = model(data)
+                val_loss += criterion(output, target).item()
+                pred = output.argmax(dim=1, keepdim=True)
+                correct += pred.eq(target.view_as(pred)).sum().item()
+            
+            val_loss /= len(val_loader) 
+            accuracy = 100. * correct / len(val_dataset)
+            print(f'Epoch {epoch+1}: Validation Loss: {val_loss:.4f}, Accuracy: {accuracy:.2f}%')
     
     # Save model with timestamp
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
